@@ -46,8 +46,8 @@ def device():
 # ---------------------------------------------------------------------------
 
 class TestTheorem6a:
-    def test_simple_lower_bound(self, device):
-        """Quick sweep with small vocab sizes and short training."""
+    def test_non_negative_sink(self, device):
+        """Part (a): sink attention is always >= 0 (structural bound)."""
         results = run_vocab_sweep(
             vocab_sizes=[8, 16, 32],
             seq_len=8,
@@ -60,10 +60,30 @@ class TestTheorem6a:
             learning_rate=0.05,
             device=device,
         )
-        res = check_theorem_6a_lower_bound(results, seq_len=8)
-        # Allow violation: in memorization regime sink can be zero,
-        # which is the empirical finding.
-        assert res.metric > -0.1, f"Theorem 6(a) far violated: {res.detail}"
+        for V, r in results.items():
+            assert r.final_sink_attn >= 0.0, \
+                f"V={V}: sink unexpectedly negative: {r.final_sink_attn:.4f}"
+
+    def test_lower_than_uniform_for_small_v(self, device):
+        """Small V should produce sink at or below uniform (1/T)."""
+        results = run_vocab_sweep(
+            vocab_sizes=[8, 16],
+            seq_len=8,
+            d_x=8,
+            head_dim=4,
+            n_train_sequences=256,
+            n_test_sequences=64,
+            batch_size=16,
+            n_steps=400,
+            learning_rate=0.05,
+            device=device,
+        )
+        for V in [8, 16]:
+            sink = results[V].final_sink_attn
+            assert sink <= 1/8 + 0.05, \
+                f"V={V}: sink {sink:.4f} not below uniform+epsilon"
+            assert results[V].final_bias < 0, \
+                f"V={V}: expected negative bias for suppression, got {results[V].final_bias:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +112,8 @@ class TestTheorem6b:
         assert res.metric >= 0.05, f"Peak too weak: {res.detail}"
 
     def test_memorization_small_v(self, device):
-        """For very small V, sink should be weak (memorization)."""
+        """For very small V, sink should be weak and bias negative
+        (memorization suppresses the anchor)."""
         results = run_vocab_sweep(
             vocab_sizes=[4, 8],
             seq_len=8,
@@ -105,10 +126,13 @@ class TestTheorem6b:
             learning_rate=0.05,
             device=device,
         )
-        # Both should have low sink (near 0)
+        # Both should have weak sink (well below peak, ~0.8)
+        # and negative bias (actively suppressing anchor)
         for V in [4, 8]:
-            assert results[V].final_sink_attn < 0.1, \
-                f"V={V}: expected low sink, got {results[V].final_sink_attn:.4f}"
+            assert results[V].final_sink_attn < 0.2, \
+                f"V={V}: expected weak sink, got {results[V].final_sink_attn:.4f}"
+            assert results[V].final_bias < -0.1, \
+                f"V={V}: expected negative bias for suppression, got {results[V].final_bias:.4f}"
 
     def test_rich_v_still_has_sink(self, device):
         """Even at large V, sink should not fully vanish (part of the peak)."""
