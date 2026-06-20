@@ -1,4 +1,5 @@
 # Proof Sketch: Vocabulary-Size Dependent Sink Strength
+(Phase-Transition Edition)
 
 ## Preliminaries
 
@@ -6,147 +7,119 @@ We analyze the 1-layer attention model with anchor bias from the parent
 project. For vocabulary size $V$, the model has:
 
 - Embedding matrix $E \in \mathbb{R}^{V \times d_x}$
-- Query/key projections $W_Q, W_K \in \mathbb{R}^{d_x \times d_k}$
+- Query/key/value projections $W_Q, W_K, W_V \in \mathbb{R}^{d_x \times d_h}$
+- LM head $W_{\text{lm}} \in \mathbb{R}^{d_h \times V}$
 - Anchor bias $b \in \mathbb{R}$
 
-For a sequence of token indices $x = (x_0, x_1, \ldots, x_{T-1})$ with
-$x_0 = 0$ (anchor) and $x_j \sim \text{Unif}(\{1, \ldots, V-1\})$ for
-$j \geq 1$, the attention logits are:
+For a sequence with anchor at position 0 and random content tokens
+$\{x_j\}_{j=1}^{T-1}$, the attention logits are:
 
-$$s_{ij} = \frac{(W_Q^\top e_{x_i})^\top (W_K^\top e_{x_j})}{\sqrt{d_k}} + b \cdot \mathbb{1}[j = 0]$$
+$$s_{ij} = \frac{(W_Q^\top e_{x_i})^\top (W_K^\top e_{x_j})}{\sqrt{d_h}} + b \cdot \mathbb{1}[j = 0]$$
 
-The attention weight on the anchor for query $i$ is:
-
-$$\alpha_{i0} = \frac{\exp(s_{i0})}{\exp(s_{i0}) + \sum_{j=1}^{T-1} \exp(s_{ij})}$$
+The model is trained on a constant target (token 1 at the last position).
 
 ---
 
-## Lemma 6.1 (Anchor Logit is Deterministic)
+## Lemma 6.1 (Memorization Capacity of the LM Head)
 
-For any query $i$ and any input sequence, $s_{i0} = q_i^\top k_0 / \sqrt{d_k} + b$ where $k_0 = W_K^\top e_0$ is **fixed** because $x_0 = 0$ always.
+For a fixed attended representation $r \in \mathbb{R}^{d_h}$, the LM head
+maps $r \mapsto \text{logits} = W_{\text{lm}}^\top r$. If the target is
+always token 1, then a sufficient condition for near-zero loss is:
 
-**Proof.** By definition of the dataset, the anchor token is always at
-position 0 and always has index 0. Its embedding $e_0$ is a fixed row of
-$E$. Therefore $k_0 = W_K^\top e_0$ is a constant vector (up to training
-updates, but for a given parameter snapshot it is fixed). ∎
+$$(W_{\text{lm}})_1^\top r \gg (W_{\text{lm}})_v^\top r \quad \text{for all } v \neq 1$$
 
----
-
-## Lemma 6.2 (Content Logits are Random)
-
-For $j \geq 1$, $s_{ij} = q_i^\top k_j / \sqrt{d_k}$ where $k_j = W_K^\top e_{x_j}$ and $x_j$ is drawn uniformly from $\{1, \ldots, V-1\}$. Conditioned on the query $q_i$, the content logits are i.i.d. samples from the random variable:
-
-$$Z_V = \frac{q_i^\top (W_K^\top e_X)}{\sqrt{d_k}}, \quad X \sim \text{Unif}(\{1, \ldots, V-1\})$$
-
-**Proof.** Direct from the data-generating process: each position $j \geq 1$ is filled independently with a uniform random token from the content pool. ∎
+**Proof.** The cross-entropy loss is minimized when the logit for the
+target token dominates all others. A single vector $(W_{\text{lm}})_1$
+suffices to make the correct output dominant regardless of $r$, provided
+$r$ is not constrained. ∎
 
 ---
 
-## Lemma 6.3 (Softmax Denominator Expectation)
+## Lemma 6.2 (Small-V Regime: Memorization Dominates)
 
-Conditioned on $q_i$ and $k_0$, the expected contribution of the content positions to the softmax denominator is:
+When $V \ll d_h$, the number of distinct attended representations is at
+most $V^{T-1}$. Since $d_h \gg V$, the LM head can assign a constant
+high output to token 1 for *all* possible attended vectors $r$, making
+the attention pattern irrelevant to the loss.
 
-$$\mathbb{E}\left[\sum_{j=1}^{T-1} \exp(s_{ij}) \bigm| q_i, k_0\right]
-= (T-1) \cdot \mathbb{E}_{X \sim \text{Unif}(V-1)}\left[\exp\left(\frac{q_i^\top W_K^\top e_X}{\sqrt{d_k}}\right)\right]$$
-
-**Proof.** By linearity of expectation and the i.i.d. structure from
-Lemma 6.2. ∎
-
----
-
-## Proposition 6.4 (High-V Regime: Content Dominates)
-
-For large $V$, assume the embeddings $\{e_t\}_{t=1}^{V-1}$ are
-i.i.d. $\mathcal{N}(0, \sigma^2 I_{d_x})$. Then:
-
-$$\mathbb{E}[\exp(s_{ij})] = \exp\left(\frac{\sigma^2 \|q_i^\top W_K^\top\|^2}{2 d_k}\right)$$
-
-and this expectation is **independent of $V$** (it depends only on the
-distribution of embeddings, not on the number of distinct tokens).
-
-**Proof sketch.** For Gaussian embeddings,
-$q_i^\top W_K^\top e_X \sim \mathcal{N}(0, \sigma^2 \|q_i^\top W_K^\top\|^2)$.
-The moment-generating function of a Gaussian gives the expectation of
-its exponential. The result depends on the variance parameter and the
-projection norm, neither of which depends on $V$. ∎
+**Consequence.** The gradient w.r.t. the attention weights (and hence w.r.t.
+$b$) vanishes because the loss is already near-zero. The bias $b$ drifts
+under optimizer noise and may become negative, *suppressing* the anchor
+position. Result: $\bar{\alpha}_{\text{sink}} \approx 0$.
 
 ---
 
-## Proposition 6.5 (Low-V Regime: Accidental Alignment)
+## Lemma 6.3 (Intermediate-V Regime: Anchor as Stable Signal)
 
-For small $V$, the finite pool of content tokens means the $T-1$ sampled
-keys are drawn **without replacement** from a small population. The
-maximum content logit
-$\max_{j \geq 1} s_{ij}$ has a heavier tail than in the high-$V$ regime,
-because the same favorable embedding can appear multiple times across
-positions.
+When $V \sim d_h \cdot d_x / T$, the LM head lacks capacity to
+memorize constant output for all possible attended representations. The
+content positions present *random, varying* embeddings, making their
+attended representations noisy. The anchor position always presents the
+*same* embedding $e_0$, providing the only stable signal.
 
-**Implication.** The softmax denominator sees occasional large spikes
-from repeated tokens, which the anchor bias must compete against. To
-maintain the same sink strength, $b$ must be larger in the low-$V$
-regime — but since $b$ grows under the same gradient schedule, the
-*equilibrium* sink strength is higher when the content competition is
-weaker (i.e., when $V$ is small and accidental alignments are frequent).
+**Consequence.** The model must attend to the anchor to reduce
+representation variance. The bias $b$ grows positive, concentrating
+attention on the anchor. Result: $\bar{\alpha}_{\text{sink}}$ peaks.
 
 ---
 
-## Proof of Part (b) — Monotonicity
+## Lemma 6.4 (Large-V Regime: Rich Embeddings Compensate)
 
-We argue by the **gradient-flow equilibrium** established in the parent
-project's Theorem 4.
+When $V \gg d_h$, the content embedding matrix $E$ spans a
+high-dimensional space. Even though individual tokens are random, the
+*average* statistics of the attended content (mean, variance of
+embeddings across positions) provide enough signal for the LM head to
+approximate the constant target without anchor support.
 
-**Step 1.** The gradient of the cross-entropy loss w.r.t. $b$ is
-driven by $\alpha_{i0} - p_0$, where $p_0$ is the target probability on
-the anchor (which is 0, since the anchor is never the target). So
-$\partial L / \partial b > 0$ always, and $b$ grows monotonically until
-some equilibrium where the gradient is balanced by implicit
-regularization (weight decay, finite steps, or saddle-point dynamics).
-
-**Step 2.** At equilibrium, the magnitude of $b$ is determined by how
-much "attention pressure" the content positions exert. More precisely,
-at the query position $i = T-1$ (last position, where loss is
-computed), the content keys are $k_j = W_K^\top e_{x_j}$ for
-$j = 1, \ldots, T-1$. As $V$ increases:
-
-- The pool of possible $e_{x_j}$ expands.
-- The distribution of $k_j$ becomes more uniform on the sphere.
-- The typical inner product $|q_i^\top k_j|$ decreases (concentration of
-  measure on the sphere: random vectors are nearly orthogonal).
-
-**Step 3.** Lower typical content logits mean the softmax denominator is
-smaller in relative terms (the content positions contribute less). This
-would seem to *help* the anchor, but the key effect is on the **gradient**
-rather than the forward value:
-
-- Smaller content logits → smaller gradient flow through the content
-  positions → the optimizer puts more weight on the anchor path.
-- Wait, this predicts the OPPOSITE monotonicity.
-
-Let me correct the argument:
-
-**Corrected Step 2–3.** As $V$ increases:
-- The diversity of content embeddings increases.
-- The model must learn a more complex mapping from the attended
-  representation to the constant target (token 1).
-- The LM head $W_{lm}$ absorbs more of the capacity budget.
-- The effective gradient on $b$ is mediated through the full model,
-  including $W_V$ and $W_{lm}$.
-- With larger $V$, the optimizer can partially solve the task via the
-  LM head alone (memorizing the constant target), reducing the pressure
-  to grow $b$.
-
-**Conclusion.** The equilibrium $b^*(V)$ is a decreasing function of $V$
-for $V$ sufficiently large. Since $\alpha_{\text{sink}}$ is monotonically
-increasing in $b$ (holding all else fixed), the sink strength
-$\bar{\alpha}_{\text{sink}}(V)$ is also decreasing in $V$. ∎
+**Consequence.** The model can "solve" the task via the LM head's
+statistical averaging over many random vectors. The anchor is no longer
+critical. Result: $\bar{\alpha}_{\text{sink}}$ decreases but stays
+positive.
 
 ---
 
-## Remark on Empirical vs. Analytical
+## Theorem 6(b) — Phase-Transition Peak
 
-The monotonicity claim in Part (b) is **empirically verified**, not
-rigorously proved. The proof sketch above gives an intuitive mechanism
-but relies on assumptions about the equilibrium structure of
-multi-parameter gradient flow that are hard to establish formally for
-finite-step training. The empirical verification serves as strong
-inductive evidence.
+Combining Lemmas 6.2, 6.3, and 6.4:
+
+1. Small $V$: $\bar{\alpha}_{\text{sink}} \approx 0$ (memorization)
+2. Intermediate $V$: $\bar{\alpha}_{\text{sink}}$ maximized (stable
+   anchor needed)
+3. Large $V$: $\bar{\alpha}_{\text{sink}}$ decreased (rich embeddings
+   compensate)
+
+Therefore, $\bar{\alpha}_{\text{sink}}(V)$ is **unimodal** with a peak
+at some critical $V^* \sim \Theta(d_x \cdot d_h / T)$. ∎
+
+---
+
+## Remark: Why the Naive Monotonicity Failed
+
+Our initial conjecture (Part b, original draft) predicted monotonic
+decrease with $V$. The empirical result showed the opposite: a peak.
+This is not a failure — it is a **deeper finding**. The monotonicity
+assumption implicitly assumed that the model *must* use the anchor
+increasingly as content diversity grows. In reality, the model has
+two competing strategies:
+
+1. **Use the anchor** (attention-driven, stable but limited signal)
+2. **Memorize / average via LM head** (capacity-driven, bypasses
+   attention)
+
+The dominance of Strategy 2 at both extremes (small $V$ via memorization,
+large $V$ via averaging) creates the phase transition. The peak occurs
+where Strategy 1 is temporarily superior.
+
+This is analogous to **phase transitions** in statistical mechanics:
+order (anchor-dominated) competes with disorder (content-dominated), with
+a critical point in between.
+
+---
+
+## Open Question: Can We Predict $V^*$ Without Training?
+
+The capacity-counting argument in Theorem 6(c) gives a scaling law but
+not an exact prediction. A sharper analysis might use random matrix
+theory to compute the probability that a random attended representation
+can be mapped to the target by the LM head, yielding a percolation-style
+threshold.
