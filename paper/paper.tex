@@ -1,0 +1,209 @@
+\documentclass[11pt,a4paper]{amsart}
+\usepackage{amsmath,amssymb,amsthm,mathtools,hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{example}[theorem]{Example}
+
+\title{Post-Softmax Rank Expansion:\\A Counterexample in Transformer Analysis}
+\author{Walker J. Kirkpatrick}
+\date{June 20, 2026}
+\address{Independent Research}
+\email{drwjkirkpatrick-web@github}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+It is commonly assumed in transformer analysis that the softmax operation
+preserves or reduces the rank of a matrix. We show this assumption is
+false by constructing an explicit family of rank-$1$ matrices whose
+row-wise softmax has full rank. The simplest counterexample is a
+$2\times 2$ matrix $Z = \begin{psmallmatrix}0&0\\0&ab\end{psmallmatrix}$
+with rank $1$, whose softmax has rank $2$. We generalize to
+$m\times n$ dimensions via a Vandermonde construction and discuss the
+implications for low-rank attention approximations.
+\end{abstract}
+
+\section{Introduction}
+
+Transformer architectures rely on the attention mechanism
+\cite{vaswani2017attention}:
+\[
+\operatorname{Attention}(Q,K,V) = \operatorname{softmax}\!
+\Bigl(\frac{QK^\top}{\sqrt{d_k}}\Bigr)V .
+\]
+Researchers frequently analyze the rank of pre-softmax and post-softmax
+matrices. An implicit assumption is that the softmax, being an
+element-wise monotone map, does not increase rank. We show this is
+false.
+
+\textbf{Main result.} There exist rank-$1$ matrices whose softmax has
+rank~$\geq 2$ (and up to $\min(m,n)$ for suitably constructed
+$m\times n$ matrices).
+
+\section{Definitions}
+
+For a real matrix $Z\in\mathbb{R}^{m\times n}$, the
+\emph{row-wise softmax} is:
+\[
+\sigma(Z)_{ij} = \frac{\exp(Z_{ij})}{\sum_{k=1}^n \exp(Z_{ik})} .
+\]
+The \emph{numerical rank} with tolerance $\tau>0$ is:
+\[
+\operatorname{rank}_\tau(M) = \#
+\{\,i\mid \sigma_i(M)\geq\tau\,\},
+\]
+where $\sigma_i(M)$ are the singular values of $M$ in descending order.
+
+\section{The 2\texorpdfstring{$\times$}{x}2 Counterexample}
+
+\begin{theorem}\label{thm:2x2}
+There exists $Z\in\mathbb{R}^{2\times 2}$ with $\operatorname{rank}(Z)=1$
+and $\operatorname{rank}(\sigma(Z))=2$.
+\end{theorem}
+
+\begin{proof}
+Take
+\begin{equation}\label{eq:Z2x2}
+Z = \begin{pmatrix} 0 & 0 \\ 0 & ab \end{pmatrix}
+= \begin{pmatrix} 0 \\ a \end{pmatrix}
+\begin{pmatrix} 0 & b \end{pmatrix}
+\end{equation}
+with $a,b\neq 0$. Clearly $\operatorname{rank}(Z)=1$.
+
+Row-wise softmax gives:
+\[
+\sigma(Z) = \begin{pmatrix}
+\tfrac12 & \tfrac12 \\[4pt]
+\tfrac{1}{1+e^{ab}} & \tfrac{e^{ab}}{1+e^{ab}}
+\end{pmatrix} .
+\]
+Suppose $\alpha\cdot[\tfrac12,\tfrac12]+\beta\cdot
+[\tfrac{1}{1+e^{ab}},\tfrac{e^{ab}}{1+e^{ab}}]=[0,0]$.
+From the first component:
+\[
+\frac{\alpha}{2}+\frac{\beta}{1+e^{ab}}=0
+\quad\Longrightarrow\quad
+\beta = -\frac{\alpha(1+e^{ab})}{2}.
+\]
+Substituting into the second component:
+\[
+\frac{\alpha}{2}-\frac{\alpha e^{ab}}{2}=0
+\quad\Longrightarrow\quad
+\alpha(1-e^{ab})=0 .
+\]
+Since $ab\neq 0$, $e^{ab}\neq 1$, so $\alpha=0$ and $\beta=0$.
+Thus the rows are linearly independent, proving
+$\operatorname{rank}(\sigma(Z))=2$.
+\end{proof}
+
+\begin{example}
+For $a=2$, $b=3$, we have $ab=6$ and
+\[
+\sigma(Z) = \begin{pmatrix}
+0.500000 & 0.500000 \\
+0.002473 & 0.997527
+\end{pmatrix}.
+\]
+Numerical SVD gives singular values
+$\sigma_1\approx 1.1426$, $\sigma_2\approx 0.4354$,
+confirming rank~$2$ to machine precision.
+\end{example}
+
+\section{General \texorpdfstring{$m\times n$}{m x n} Construction}
+
+\begin{theorem}\label{thm:general}
+For any $m\geq 2$ and $n\geq 2$, there exists $Z\in\mathbb{R}^{m\times n}$
+with $\operatorname{rank}(Z)=1$ and
+$\operatorname{rank}(\sigma(Z))\geq 2$.
+In particular, for $m,n\leq 5$, a Vandermonde construction gives
+$\operatorname{rank}(\sigma(Z))=\min(m,n)$.
+\end{theorem}
+
+\begin{proof}
+Let $u_i=a\cdot i$ and $v_j=b\cdot j$ for $i=0,\dots,m-1$,
+$j=0,\dots,n-1$ with $a,b\neq 0$, and set $Z=uv^\top$. Then
+\begin{align*}
+\sigma(Z)_{ij}
+&= \frac{\exp(ab\cdot ij)}{\sum_{k=0}^{n-1}\exp(ab\cdot ik)} \\
+&= \frac{1}{S_i}\bigl(r^i\bigr)^j,
+\end{align*}
+where $r=e^{ab}>1$ and $S_i=\sum_{k=0}^{n-1}(r^i)^k$.
+
+Each row $i$ is proportional to the geometric progression
+$[1,r^i,r^{2i},\dots,r^{(n-1)i}]$. For $m\leq n\leq 5$,
+these rows form a generalized Vandermonde matrix with distinct
+nodes $r^i$. The determinant of any $m\times m$ submatrix is
+$\prod_{0\leq i<j<m}(r^j-r^i)\neq 0$, so the rows are linearly
+independent. Hence $\operatorname{rank}(\sigma(Z))=m=\min(m,n)$.
+\end{proof}
+
+\begin{remark}[Numerical Limitations]
+For $m,n>5$, the exponential values $r^{ij}$ span ranges that exceed
+double-precision arithmetic. The analytical result still holds in
+exact arithmetic, but numerical verification requires arbitrary
+precision or a modified construction.
+\end{remark}
+
+\section{Implications}
+
+\textbf{Low-rank attention approximations.} Methods such as Performer
+\cite{choromanski2021rethinking} and Linformer
+\cite{wang2020linformer} approximate
+$\sigma(QK^\top)\approx QK^\top$ by treating the softmax as
+approximately linear. Our theorem shows this approximation has a
+\emph{fundamental representational gap}: it cannot reproduce rank
+expansions that the softmax creates.
+
+\textbf{Practical consequence.} If attention is compressed to rank
+$r$ \emph{before} the softmax, the softmax of the reconstruction may
+still have higher rank than $r$. Correct compression must happen
+\emph{after} the softmax.
+
+\begin{corollary}
+Any theorem assuming
+$\operatorname{rank}(\sigma(Z))\leq\operatorname{rank}(Z)$ is
+incorrect in general.
+\end{corollary}
+
+\section{Open Questions}
+
+\begin{enumerate}
+\item \textbf{Exact rank formula.} For $Z=uv^\top$, can the rank of
+$\sigma(Z)$ be expressed in terms of the multiplicities of
+components in $u$ and $v$?
+\item \textbf{Approximate rank.} How close can $\sigma(Z)$ be to a
+rank-$r$ matrix when $Z$ has rank $r$? Is there an Eckart--Young
+bound for the softmax map?
+\item \textbf{Arbitrary precision.} Can the Vandermonde construction
+be verified for all $m,n$ using exact rational or symbolic arithmetic?
+\end{enumerate}
+
+\section*{Acknowledgments}
+Verified empirically on NumPy with double-precision floating point.
+CPU-only; no GPU required.
+
+\begin{thebibliography}{9}
+\bibitem{vaswani2017attention}
+A. Vaswani et al., ``Attention is all you need,'' NeurIPS, 2017.
+
+\bibitem{choromanski2021rethinking}
+K. Choromanski et al., ``Rethinking attention with performers,''
+ICLR, 2021.
+
+\bibitem{wang2020linformer}
+S. Wang et al., ``Linformer: Self-attention with linear complexity,''
+arXiv:2006.04768, 2020.
+\end{thebibliography}
+
+\end{document}
